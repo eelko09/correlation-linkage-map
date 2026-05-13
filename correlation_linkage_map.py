@@ -50,13 +50,13 @@ def parse_args() -> argparse.Namespace:
         help="Minimum number of reactive samples required for a peptide to be analyzed.",
     )
     parser.add_argument(
-        "--reactive-z",
+        "--z-threshold",
         type=float,
         default=10.0,
         help="Reactivity threshold in raw Z units before log normalization (default: 10).",
     )
     parser.add_argument(
-        "--min-overlap-samples",
+        "--min-shared-samples",
         type=int,
         default=40,
         help="Minimum shared non-NaN samples required to compute correlation.",
@@ -73,7 +73,7 @@ def parse_args() -> argparse.Namespace:
         help="Regex for sample columns to drop from each Z-score table.",
     )
     parser.add_argument(
-        "--prefix",
+        "--output-prefix",
         default="CorrelationLinkageMap",
         help="Prefix for output TSV files.",
     )
@@ -114,7 +114,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--scatter-output-dir",
         default=None,
-        help="Directory for scatterplot PNGs. Default: {prefix}_scatterplots",
+        help="Directory for scatterplot PNGs. Default: {output_prefix}_scatterplots",
     )
     parser.add_argument(
         "--scatter-max-plots",
@@ -570,7 +570,7 @@ def generate_scatterplots(
     peptides: np.ndarray,
 ) -> int:
     """Generate scatterplots based on CLI mode and correlation output file."""
-    out_dir = Path(args.scatter_output_dir or f"{args.prefix}_scatterplots")
+    out_dir = Path(args.scatter_output_dir or f"{args.output_prefix}_scatterplots")
     pep_to_idx = {p: idx for idx, p in enumerate(peptides.tolist())}
 
     if args.scatter_peptides:
@@ -638,16 +638,16 @@ def main() -> None:
         zdf=zdf,
         meta=meta,
         min_reactive_samples=args.min_reactive_samples,
-        reactive_z_raw=args.reactive_z,
+        reactive_z_raw=args.z_threshold,
     )
 
-    corr_out = Path(f"{args.prefix}_correlations_pass_thresh.tsv")
-    link_out = Path(f"{args.prefix}_linkage_map.tsv")
+    corr_out = Path(f"{args.output_prefix}_correlations_pass_thresh.tsv")
+    link_out = Path(f"{args.output_prefix}_linkage_map.tsv")
     # -------------------------------
     # Streaming mode: lower RAM usage
     # -------------------------------
     if args.stream_output:
-        core_out = Path(f"{args.prefix}_correlations_core.tmp.tsv")
+        core_out = Path(f"{args.output_prefix}_correlations_core.tmp.tsv")
         if core_out.exists():
             core_out.unlink()
         if corr_out.exists():
@@ -657,7 +657,7 @@ def main() -> None:
             X=X,
             peptides=peptides,
             species_ids=species_ids,
-            min_overlap=args.min_overlap_samples,
+            min_overlap=args.min_shared_samples,
             pearson_threshold=args.pearson_threshold,
             block_size=args.block_size,
             out_path=core_out,
@@ -769,7 +769,7 @@ def main() -> None:
         print(f"Linkage-map output: {link_out}")
         n_scatter = generate_scatterplots(args=args, corr_out=corr_out, X=X, peptides=peptides)
         if n_scatter > 0:
-            scatter_dir = Path(args.scatter_output_dir or f"{args.prefix}_scatterplots")
+            scatter_dir = Path(args.scatter_output_dir or f"{args.output_prefix}_scatterplots")
             print(f"Scatterplots written: {n_scatter} -> {scatter_dir}")
         elapsed = time.perf_counter() - start_time
         print(f"Elapsed time (s): {elapsed:.2f}")
@@ -783,7 +783,7 @@ def main() -> None:
         X=X,
         peptides=peptides,
         species_ids=species_ids,
-        min_overlap=args.min_overlap_samples,
+        min_overlap=args.min_shared_samples,
         pearson_threshold=args.pearson_threshold,
         block_size=args.block_size,
     )
@@ -832,7 +832,7 @@ def main() -> None:
     print(f"Linkage-map output: {link_out}")
     n_scatter = generate_scatterplots(args=args, corr_out=corr_out, X=X, peptides=peptides)
     if n_scatter > 0:
-        scatter_dir = Path(args.scatter_output_dir or f"{args.prefix}_scatterplots")
+        scatter_dir = Path(args.scatter_output_dir or f"{args.output_prefix}_scatterplots")
         print(f"Scatterplots written: {n_scatter} -> {scatter_dir}")
     elapsed = time.perf_counter() - start_time
     print(f"Elapsed time (s): {elapsed:.2f}")

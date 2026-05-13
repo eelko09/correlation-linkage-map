@@ -10,8 +10,8 @@ Build peptide-peptide correlation outputs and peptide linkage maps from a Z-scor
 - Filters peptides by minimum reactive sample count
 - Computes cross-species pairwise Pearson correlations
 - Writes:
-  - `{prefix}_correlations_pass_thresh.tsv`
-  - `{prefix}_linkage_map.tsv`
+  - `{output_prefix}_correlations_pass_thresh.tsv`
+  - `{output_prefix}_linkage_map.tsv`
 - Optional: streaming/chunked mode for lower memory usage
 - Optional: scatterplot PNG output for peptide comparisons
 
@@ -32,7 +32,7 @@ Required columns:
 ## Outputs
 
 ### 1) Correlation output
-File: `{prefix}_correlations_pass_thresh.tsv`
+File: `{output_prefix}_correlations_pass_thresh.tsv`
 
 Contains pair-level rows including:
 - `CodeName1`, `CodeName2`
@@ -44,7 +44,7 @@ Contains pair-level rows including:
 Only cross-species pairs are retained (`Species1 != Species2`).
 
 ### 2) Linkage map output
-File: `{prefix}_linkage_map.tsv`
+File: `{output_prefix}_linkage_map.tsv`
 
 Headers:
 - `Peptide Name`
@@ -69,7 +69,7 @@ python correlation_linkage_map.py \
   --metadata /path/to/metadata.tsv \
   --zscore-file /path/to/zscores.tsv \
   --pearson-threshold 0.5 \
-  --prefix PM1
+  --output-prefix PM1
 ```
 
 ## Full example (all major options)
@@ -78,16 +78,16 @@ python correlation_linkage_map.py \
 python correlation_linkage_map.py \
   --metadata /path/to/metadata.tsv \
   --zscore-file /path/to/zscores.tsv \
+  --drop-regex Sblk \
   --pearson-threshold 0.50 \
   --min-reactive-samples 130 \
-  --reactive-z 10 \
-  --min-overlap-samples 40 \
+  --z-threshold 10 \
+  --min-shared-samples 40 \
   --block-size 512 \
-  --drop-regex Sblk \
-  --prefix PM1 \
-  --compute-7mer-overlap \
   --stream-output \
   --stream-chunk-rows 200000 \
+  --output-prefix PM1 \
+  --compute-7mer-overlap \
   --scatterplot-mode above \
   --scatter-threshold 0.8 \
   --scatter-output-dir PM1_scatterplots \
@@ -102,7 +102,7 @@ python correlation_linkage_map.py \
   - `above`: plot pairs where `Pearson_Corr. >= --scatter-threshold`
   - `below`: plot pairs where `Pearson_Corr. <= --scatter-threshold`
 - `--scatter-threshold FLOAT`: required for `above` / `below`
-- `--scatter-output-dir DIR`: PNG output folder (default `{prefix}_scatterplots`)
+- `--scatter-output-dir DIR`: PNG output folder (default `{output_prefix}_scatterplots`)
 - `--scatter-max-plots INT`: hard cap on number of plots
 - `--scatter-peptides PEPTIDE1 PEPTIDE2`: generate a single pair plot
 
@@ -113,7 +113,7 @@ python correlation_linkage_map.py \
   --metadata /path/to/metadata.tsv \
   --zscore-file /path/to/zscores.tsv \
   --pearson-threshold 0.5 \
-  --prefix PM1 \
+  --output-prefix PM1 \
   --scatter-peptides IN2T_00025 IN2T_13620
 ```
 
@@ -138,4 +138,3 @@ python correlation_linkage_map.py --help
 - `--scatter-max-plots must be >= 1`
 - Missing metadata columns (`CodeName`, `SpeciesID`, `Species`, `Peptide`)
 - Missing `--scatter-threshold` when using `--scatterplot-mode above|below`
-
