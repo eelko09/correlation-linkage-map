@@ -819,7 +819,7 @@ def main() -> None:
         sp_map=sp_map,
         pepseq_map=pepseq_map,
         compute_7mer=args.compute_7mer_overlap,
-    )[1]
+    )
 
     high_corr.sort_values("Pearson_Corr.", ascending=False).to_csv(corr_out, sep="\t", index=False)
     write_linkage_map(linkage_df, link_out)
