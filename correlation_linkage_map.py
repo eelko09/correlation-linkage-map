@@ -57,9 +57,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--min-shared-samples",
-        type=int,
-        default=40,
-        help="Minimum shared non-NaN samples required to compute correlation.",
+        type=float,
+        default=0.25,
+        help=(
+            "Minimum reactive-sample overlap ratio in [0, 1], defined as "
+            "intersection/union where reactivity is z > --z-threshold."
+        ),
     )
     parser.add_argument(
         "--block-size",
@@ -232,14 +235,18 @@ def find_high_pairs(
     X: np.ndarray,
     peptides: np.ndarray,
     species_ids: np.ndarray,
-    min_overlap: int,
+    min_overlap_ratio: float,
+    reactive_thresh_log: float,
     pearson_threshold: float,
     block_size: int,
 ) -> pd.DataFrame:
     """
     Compute cross-species Pearson hits in-memory.
 
-    Uses blockwise matrix operations and pairwise-complete overlap handling with NaN masks.
+    Uses blockwise matrix operations with:
+    - Pairwise-complete overlap handling (NaN-aware) for Pearson.
+    - Reactive overlap ratio filter: |A ∩ B| / |A ∪ B| where A/B are
+      samples with z > --z-threshold for each peptide.
     """
     p = X.shape[1]
     mask = ~np.isnan(X)
@@ -276,10 +283,21 @@ def find_high_pairs(
                     Xj_s = Xj[:, idx_j]
                     Mj_s = Mj[:, idx_j]
 
-                    N = Mi_s.T @ Mj_s
-                    valid = N >= min_overlap
-                    if not np.any(valid):
+                    Ri_s = ((Xi_s > reactive_thresh_log) & (Mi_s > 0)).astype(np.float64)
+                    Rj_s = ((Xj_s > reactive_thresh_log) & (Mj_s > 0)).astype(np.float64)
+                    inter = Ri_s.T @ Rj_s
+                    union = (
+                        Ri_s.sum(axis=0)[:, None]
+                        + Rj_s.sum(axis=0)[None, :]
+                        - inter
+                    )
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        overlap_ratio = np.where(union > 0, inter / union, 0.0)
+                    valid_ratio = (union > 0) & (overlap_ratio >= min_overlap_ratio)
+                    if not np.any(valid_ratio):
                         continue
+
+                    N = Mi_s.T @ Mj_s
 
                     Sxy = Xi_s.T @ Xj_s
                     Sx = Xi_s.T @ Mj_s
@@ -295,7 +313,7 @@ def find_high_pairs(
                         den = np.sqrt(den_left * den_right)
                         r = num / den
 
-                    keep = valid & np.isfinite(r) & (r >= pearson_threshold)
+                    keep = valid_ratio & np.isfinite(r) & (r >= pearson_threshold)
                     if not np.any(keep):
                         continue
 
@@ -309,12 +327,25 @@ def find_high_pairs(
                                 "CodeName2": peptides[gj_idx],
                                 "Pearson_Corr.": r[ii, jj].astype(np.float64),
                                 "OverlapSamples": N[ii, jj].astype(np.int64),
+                                "SharedReactiveSamples": inter[ii, jj].astype(np.int64),
+                                "ReactiveUnionSamples": union[ii, jj].astype(np.int64),
+                                "ReactiveOverlapRatio": overlap_ratio[ii, jj].astype(np.float64),
                             }
                         )
                     )
 
     if not out_chunks:
-        return pd.DataFrame(columns=["CodeName1", "CodeName2", "Pearson_Corr.", "OverlapSamples"])
+        return pd.DataFrame(
+            columns=[
+                "CodeName1",
+                "CodeName2",
+                "Pearson_Corr.",
+                "OverlapSamples",
+                "SharedReactiveSamples",
+                "ReactiveUnionSamples",
+                "ReactiveOverlapRatio",
+            ]
+        )
     return pd.concat(out_chunks, ignore_index=True)
 
 
@@ -322,7 +353,8 @@ def stream_high_pairs_to_file(
     X: np.ndarray,
     peptides: np.ndarray,
     species_ids: np.ndarray,
-    min_overlap: int,
+    min_overlap_ratio: float,
+    reactive_thresh_log: float,
     pearson_threshold: float,
     block_size: int,
     out_path: Path,
@@ -388,10 +420,21 @@ def stream_high_pairs_to_file(
                     Xj_s = Xj[:, idx_j]
                     Mj_s = Mj[:, idx_j]
 
-                    N = Mi_s.T @ Mj_s
-                    valid = N >= min_overlap
-                    if not np.any(valid):
+                    Ri_s = ((Xi_s > reactive_thresh_log) & (Mi_s > 0)).astype(np.float64)
+                    Rj_s = ((Xj_s > reactive_thresh_log) & (Mj_s > 0)).astype(np.float64)
+                    inter = Ri_s.T @ Rj_s
+                    union = (
+                        Ri_s.sum(axis=0)[:, None]
+                        + Rj_s.sum(axis=0)[None, :]
+                        - inter
+                    )
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        overlap_ratio = np.where(union > 0, inter / union, 0.0)
+                    valid_ratio = (union > 0) & (overlap_ratio >= min_overlap_ratio)
+                    if not np.any(valid_ratio):
                         continue
+
+                    N = Mi_s.T @ Mj_s
 
                     Sxy = Xi_s.T @ Xj_s
                     Sx = Xi_s.T @ Mj_s
@@ -406,7 +449,7 @@ def stream_high_pairs_to_file(
                         den = np.sqrt(den_left * den_right)
                         r = num / den
 
-                    keep = valid & np.isfinite(r) & (r >= pearson_threshold)
+                    keep = valid_ratio & np.isfinite(r) & (r >= pearson_threshold)
                     if not np.any(keep):
                         continue
 
@@ -420,6 +463,9 @@ def stream_high_pairs_to_file(
                                 "CodeName2": peptides[gj_idx],
                                 "Pearson_Corr.": r[ii, jj].astype(np.float64),
                                 "OverlapSamples": N[ii, jj].astype(np.int64),
+                                "SharedReactiveSamples": inter[ii, jj].astype(np.int64),
+                                "ReactiveUnionSamples": union[ii, jj].astype(np.int64),
+                                "ReactiveOverlapRatio": overlap_ratio[ii, jj].astype(np.float64),
                             }
                         )
                     )
@@ -626,6 +672,8 @@ def main() -> None:
     args = parse_args()
     if args.block_size <= 0:
         raise ValueError("--block-size must be >= 1.")
+    if not (0.0 <= args.min_shared_samples <= 1.0):
+        raise ValueError("--min-shared-samples must be between 0 and 1 (inclusive).")
     if args.stream_chunk_rows <= 0:
         raise ValueError("--stream-chunk-rows must be >= 1.")
     if args.scatter_max_plots <= 0:
@@ -640,6 +688,7 @@ def main() -> None:
         min_reactive_samples=args.min_reactive_samples,
         reactive_z_raw=args.z_threshold,
     )
+    reactive_thresh_log = math.log2(args.z_threshold + 8.0) - 3.0
 
     corr_out = Path(f"{args.output_prefix}_correlations_pass_thresh.tsv")
     link_out = Path(f"{args.output_prefix}_linkage_map.tsv")
@@ -657,7 +706,8 @@ def main() -> None:
             X=X,
             peptides=peptides,
             species_ids=species_ids,
-            min_overlap=args.min_shared_samples,
+            min_overlap_ratio=args.min_shared_samples,
+            reactive_thresh_log=reactive_thresh_log,
             pearson_threshold=args.pearson_threshold,
             block_size=args.block_size,
             out_path=core_out,
@@ -666,7 +716,15 @@ def main() -> None:
 
         if prefilter_hits == 0:
             pd.DataFrame(
-                columns=["CodeName1", "CodeName2", "Pearson_Corr.", "OverlapSamples"]
+                columns=[
+                    "CodeName1",
+                    "CodeName2",
+                    "Pearson_Corr.",
+                    "OverlapSamples",
+                    "SharedReactiveSamples",
+                    "ReactiveUnionSamples",
+                    "ReactiveOverlapRatio",
+                ]
             ).to_csv(corr_out, sep="\t", index=False)
             write_linkage_map(pd.DataFrame(columns=["Species"]), link_out)
             print("No pairs passed filters. Wrote empty outputs:")
@@ -783,7 +841,8 @@ def main() -> None:
         X=X,
         peptides=peptides,
         species_ids=species_ids,
-        min_overlap=args.min_shared_samples,
+        min_overlap_ratio=args.min_shared_samples,
+        reactive_thresh_log=reactive_thresh_log,
         pearson_threshold=args.pearson_threshold,
         block_size=args.block_size,
     )
