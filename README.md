@@ -82,7 +82,7 @@ python correlation_linkage_map.py \
   --pearson-threshold 0.50 \
   --min-reactive-samples 130 \
   --z-threshold 10 \
-  --min-shared-samples 40 \
+  --min-shared-samples 0.25 \
   --block-size 512 \
   --stream-output \
   --stream-chunk-rows 200000 \
